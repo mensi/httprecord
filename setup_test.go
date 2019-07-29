@@ -16,7 +16,7 @@ package httprecord
 
 import (
 	"github.com/coredns/coredns/plugin/pkg/fall"
-	"github.com/mholt/caddy"
+	"github.com/caddyserver/caddy"
 	"reflect"
 	"testing"
 )

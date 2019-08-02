@@ -74,6 +74,9 @@ func (h HTTPRecord) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.M
 
 	if _, ok := responseToRR[state.Type()]; !ok {
 		// As this type is not something we support, there is not going to be a result anyways.
+		if h.Fall.Through(state.Name()) {
+			return plugin.NextOrFailure(state.Name(), h.Next, ctx, w, r)
+		}
 		return nodata(w, r)
 	}
 

@@ -83,12 +83,27 @@ Respond to A requests on foo.example.com. and foo.example.org. with the IP addre
 
 Respond to all requests on *.example.com. with the contents at https://example.com/**FQDN**txt. For example, a lookup
 on foo.example.com. will be looked-up at https://example.com/**foo.example.com.**txt. Also respond to the individual
-record bar.example.org. by performing the same lookup.
+record bar.example.org. by performing the same lookup. This approach can be used to implement a simple dynamic DNS
+service by having a small web-app recording client IP addresses and exposing them on a httprecord-compatible endpoint.
 
 ~~~ corefile
 . {
     httprecord example.com. https://example.com/%{fqdn}.txt {
         TXT bar.example.org.
+    }
+}
+~~~
+
+Serve example.com from file but also serve the ACME challenge based on a HTTP request. For this to work, httprecord
+must come before file in plugin.cfg so that httprecord can serve the challenge TXT record and fallthrough on the
+rest. This approach can be used to answer Let's Encrypt DNS challenges with certbot running on a different machine.
+
+~~~ corefile
+example.com {
+    file example.com
+    httprecord {
+        TXT _acme-challenge.example.com. http://10.0.0.1/acme.txt
+        fallthrough example.com.
     }
 }
 ~~~

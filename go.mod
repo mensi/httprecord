@@ -1,9 +1,9 @@
 module github.com/mensi/httprecord
 
-go 1.12
+go 1.16
 
 require (
-	github.com/caddyserver/caddy v1.0.3
-	github.com/coredns/coredns v1.6.2
-	github.com/miekg/dns v1.1.16
+	github.com/coredns/caddy v1.1.1
+	github.com/coredns/coredns v1.8.6
+	github.com/miekg/dns v1.1.43
 )

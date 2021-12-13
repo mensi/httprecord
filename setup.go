@@ -15,20 +15,15 @@
 package httprecord
 
 import (
+	"github.com/coredns/caddy"
 	"github.com/coredns/coredns/core/dnsserver"
 	"github.com/coredns/coredns/plugin"
-	"github.com/caddyserver/caddy"
 	"github.com/miekg/dns"
 	"log"
 	"strings"
 )
 
-func init() {
-	caddy.RegisterPlugin("httprecord", caddy.Plugin{
-		ServerType: "dns",
-		Action:     setup,
-	})
-}
+func init() { plugin.Register("httprecord", setup) }
 
 func setup(c *caddy.Controller) error {
 	httprecord, err := parseConfig(c)
@@ -100,7 +95,7 @@ func parseConfig(c *caddy.Controller) (HTTPRecord, error) {
 	return h, nil
 }
 
-func parseConfigBlock(c *caddy.Controller, h *HTTPRecord, origins []string, blockuri string) (error) {
+func parseConfigBlock(c *caddy.Controller, h *HTTPRecord, origins []string, blockuri string) error {
 	for c.NextBlock() {
 		switch c.Val() {
 		case "fallthrough":

@@ -60,10 +60,11 @@ func (e BackendIndicatedError) Error() string {
 }
 
 const MaxHTTPBodySize = 4096
+
 var cacheControlRegex = regexp.MustCompile(`max-age:[\s]*([\d]+)`)
-var responseToRR = map[string]func(name string, ttl uint32, response string) ([]dns.RR, error) {
-	"TXT": parseTXT,
-	"A": parseA,
+var responseToRR = map[string]func(name string, ttl uint32, response string) ([]dns.RR, error){
+	"TXT":  parseTXT,
+	"A":    parseA,
 	"AAAA": parseAAAA,
 }
 

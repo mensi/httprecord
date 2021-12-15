@@ -16,9 +16,11 @@ package httprecord
 
 import (
 	"github.com/coredns/caddy"
+	"github.com/coredns/coredns/plugin/pkg/cache"
 	"github.com/coredns/coredns/plugin/pkg/fall"
 	"reflect"
 	"testing"
+	"time"
 )
 
 func TestHTTPRecordParse(t *testing.T) {
@@ -40,6 +42,26 @@ func TestHTTPRecordParse(t *testing.T) {
 					URI:  "https://example.com",
 				}},
 				Fall: fall.Root,
+			},
+		},
+		{
+			`httprecord {
+				A example.com. https://example.com
+				onerror cached
+				timeout 1s
+				fallthrough
+			}`,
+			false,
+			HTTPRecord{
+				Records: []Record{{
+					Type: "A",
+					Name: "example.com.",
+					URI:  "https://example.com",
+				}},
+				ReturnCachedOnError: true,
+				Cache:               cache.New(100),
+				Timeout:             1 * time.Second,
+				Fall:                fall.Root,
 			},
 		},
 		{

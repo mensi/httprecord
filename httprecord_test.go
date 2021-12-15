@@ -16,6 +16,7 @@ package httprecord
 
 import (
 	"context"
+	"github.com/coredns/coredns/plugin/pkg/cache"
 	"github.com/coredns/coredns/plugin/pkg/dnstest"
 	"github.com/coredns/coredns/plugin/pkg/log"
 	"github.com/coredns/coredns/plugin/test"
@@ -24,13 +25,15 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 type testCase struct {
-	config    HTTPRecord
-	handler   http.HandlerFunc
-	tc        test.Case
-	shouldErr bool
+	config              HTTPRecord
+	handler             http.HandlerFunc
+	tc                  test.Case
+	shouldErr           bool
+	doesNotCauseRequest bool
 }
 
 func TestHTTPRecord_ServeDNS(t *testing.T) {
@@ -97,6 +100,7 @@ func TestHTTPRecord_ServeDNS(t *testing.T) {
 			Qname: "foo.example.com.", Qtype: dns.TypeAFSDB,
 			Answer: []dns.RR{},
 		},
+		doesNotCauseRequest: true,
 	}, {
 		config: HTTPRecord{
 			Zones: []Zone{{
@@ -162,9 +166,10 @@ func TestHTTPRecord_ServeDNS(t *testing.T) {
 		shouldErr: true,
 	}}
 
-	log.D = true
+	log.D.Set()
 	for i, c := range tests {
 		runTestCase(t, c, i)
+		runTestCaseCached(t, c, i)
 	}
 }
 
@@ -172,30 +177,71 @@ func runTestCase(t *testing.T, c testCase, testnum int) {
 	server := httptest.NewServer(c.handler)
 	defer server.Close()
 
-	for i, r := range c.config.Records {
-		c.config.Records[i].URI = strings.Replace(r.URI, "-replace-", server.URL, -1)
+	config := c.config
+	config.Timeout = 5 * time.Millisecond
+
+	config.Records = make([]Record, len(c.config.Records))
+	copy(config.Records, c.config.Records)
+	config.Zones = make([]Zone, len(c.config.Zones))
+	copy(config.Zones, c.config.Zones)
+	for i, r := range config.Records {
+		config.Records[i].URI = strings.Replace(r.URI, "-replace-", server.URL, -1)
+	}
+	for i, z := range config.Zones {
+		config.Zones[i].URI = strings.Replace(z.URI, "-replace-", server.URL, -1)
 	}
 
-	for i, z := range c.config.Zones {
-		c.config.Zones[i].URI = strings.Replace(z.URI, "-replace-", server.URL, -1)
+	doRequest(t, &config, &c.tc, testnum, c.shouldErr, "")
+
+	// Without caching, everything should fail when the server is down
+	server.Close()
+	doRequest(t, &config, &c.tc, testnum, !c.doesNotCauseRequest, "[ServerDown] ")
+}
+
+func runTestCaseCached(t *testing.T, c testCase, testnum int) {
+	server := httptest.NewServer(c.handler)
+	defer server.Close()
+
+	config := c.config
+	config.ReturnCachedOnError = true
+	config.Cache = cache.New(100)
+	config.Timeout = 5 * time.Millisecond
+
+	config.Records = make([]Record, len(c.config.Records))
+	copy(config.Records, c.config.Records)
+	config.Zones = make([]Zone, len(c.config.Zones))
+	copy(config.Zones, c.config.Zones)
+	for i, r := range config.Records {
+		config.Records[i].URI = strings.Replace(r.URI, "-replace-", server.URL, -1)
+	}
+	for i, z := range config.Zones {
+		config.Zones[i].URI = strings.Replace(z.URI, "-replace-", server.URL, -1)
 	}
 
+	doRequest(t, &config, &c.tc, testnum, c.shouldErr, "")
+
+	// Close the server and run the case again - with caching, it should still pass
+	server.Close()
+	doRequest(t, &config, &c.tc, testnum, c.shouldErr, "[Cached] ")
+}
+
+func doRequest(t *testing.T, c *HTTPRecord, tc *test.Case, testnum int, shouldErr bool, msgPrefix string) {
 	ctx := context.TODO()
-	m := c.tc.Msg()
-
 	rec := dnstest.NewRecorder(&test.ResponseWriter{})
-	_, err := c.config.ServeDNS(ctx, rec, m)
+	_, err := c.ServeDNS(ctx, rec, tc.Msg())
 
-	if err != nil && !c.shouldErr {
-		t.Errorf("Test %d expected no error, got %v\n", testnum, err)
+	if err != nil && !shouldErr {
+		t.Errorf(msgPrefix+"Test %d expected no error, got %v\n", testnum, err)
 		return
-	} else if err == nil && c.shouldErr {
-		t.Errorf("Test %d expected an error but didn't get one\n", testnum)
+	} else if err == nil && shouldErr {
+		t.Errorf(msgPrefix+"Test %d expected an error but didn't get one. Answer:\n %v\n", testnum, rec.Msg)
 		return
 	}
 
 	if err == nil {
 		resp := rec.Msg
-		test.SortAndCheck(t, resp, c.tc)
+		if err := test.SortAndCheck(resp, *tc); err != nil {
+			t.Error(err)
+		}
 	}
 }

@@ -18,9 +18,11 @@ import (
 	"github.com/coredns/caddy"
 	"github.com/coredns/coredns/core/dnsserver"
 	"github.com/coredns/coredns/plugin"
+	"github.com/coredns/coredns/plugin/pkg/cache"
 	"github.com/miekg/dns"
 	"log"
 	"strings"
+	"time"
 )
 
 func init() { plugin.Register("httprecord", setup) }
@@ -46,7 +48,7 @@ func parseConfig(c *caddy.Controller) (HTTPRecord, error) {
 
 	serverBlockOrigins := make([]string, len(c.ServerBlockKeys))
 	for i := range serverBlockOrigins {
-		serverBlockOrigins[i] = plugin.Host(c.ServerBlockKeys[i]).Normalize()
+		serverBlockOrigins[i] = plugin.Host(c.ServerBlockKeys[i]).NormalizeExact()[0]
 	}
 
 	for c.Next() {
@@ -98,6 +100,29 @@ func parseConfig(c *caddy.Controller) (HTTPRecord, error) {
 func parseConfigBlock(c *caddy.Controller, h *HTTPRecord, origins []string, blockuri string) error {
 	for c.NextBlock() {
 		switch c.Val() {
+		case "onerror":
+			args := c.RemainingArgs()
+
+			if len(args) != 1 || (args[0] != "servfail" && args[0] != "cached") {
+				return c.Err("unknown value for onerror. Expected one of: servfail, cached")
+			}
+
+			h.ReturnCachedOnError = args[0] == "cached"
+			if h.ReturnCachedOnError {
+				h.Cache = cache.New(100)
+			}
+		case "timeout":
+			args := c.RemainingArgs()
+
+			if len(args) != 1 {
+				return c.Err("unknown value for timeout. Expected a duration")
+			}
+
+			if timeout, err := time.ParseDuration(args[0]); err != nil {
+				return c.Err("unable to parse timeout: " + err.Error())
+			} else {
+				h.Timeout = timeout
+			}
 		case "fallthrough":
 			h.Fall.SetZonesFromArgs(c.RemainingArgs())
 		default:

@@ -97,12 +97,15 @@ service by having a small web-app recording client IP addresses and exposing the
 Serve example.com from file but also serve the ACME challenge based on a HTTP request. For this to work, httprecord
 must come before file in plugin.cfg so that httprecord can serve the challenge TXT record and fallthrough on the
 rest. This approach can be used to answer Let's Encrypt DNS challenges with certbot running on a different machine.
+The HTTP request has a timeout of 1 second and in case of failure, the last successful result will be reused.
 
 ~~~ corefile
 example.com {
     file example.com
     httprecord {
         TXT _acme-challenge.example.com. http://10.0.0.1/acme.txt
+        onerror cached
+        timeout 1s
         fallthrough example.com.
     }
 }

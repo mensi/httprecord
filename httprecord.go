@@ -18,10 +18,12 @@ import (
 	"context"
 	"fmt"
 	"github.com/coredns/coredns/plugin"
+	"github.com/coredns/coredns/plugin/pkg/cache"
 	"github.com/coredns/coredns/plugin/pkg/fall"
 	"github.com/coredns/coredns/plugin/pkg/log"
 	"github.com/coredns/coredns/request"
 	"github.com/miekg/dns"
+	"hash/fnv"
 	"io"
 	"net/http"
 	"regexp"
@@ -31,12 +33,14 @@ import (
 )
 
 type HTTPRecord struct {
-	Next    plugin.Handler
-	Records []Record
-	Zones   []Zone
-	Timeout time.Duration
-	MaxTTL  uint32
-	Fall    fall.F
+	Next                plugin.Handler
+	Records             []Record
+	Zones               []Zone
+	Timeout             time.Duration
+	MaxTTL              uint32
+	ReturnCachedOnError bool
+	Cache               *cache.Cache
+	Fall                fall.F
 }
 
 type Zone struct {
@@ -53,6 +57,11 @@ type Record struct {
 type BackendIndicatedError struct {
 	HTTPResponseCode int
 	DNSResponseCode  int
+}
+
+type cacheItem struct {
+	Payload string
+	TTL     uint32
 }
 
 func (e BackendIndicatedError) Error() string {
@@ -106,7 +115,7 @@ func (h HTTPRecord) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.M
 	}
 
 	// At this point, we don't have anything to return - but we don't know that it is NXDOMAIN as other records might
-	// exist. As sch, we will do a NODATA response
+	// exist. As such, we will do a NODATA response
 	return nodata(w, r)
 }
 
@@ -174,6 +183,30 @@ func (h HTTPRecord) fetch(name string, uri string) (string, uint32, error) {
 	}
 }
 
+func (h HTTPRecord) maybeFetchCached(name string, uri string) (string, uint32, error) {
+	if !h.ReturnCachedOnError {
+		return h.fetch(name, uri)
+	}
+
+	hasher := fnv.New64()
+	hasher.Write([]byte(name))
+	hasher.Write([]byte(uri))
+	cachekey := hasher.Sum64()
+
+	payload, ttl, err := h.fetch(name, uri)
+	if err == nil {
+		h.Cache.Add(cachekey, cacheItem{payload, ttl})
+		return payload, ttl, err
+	}
+
+	if entry, ok := h.Cache.Get(cachekey); ok {
+		if item, ok := entry.(cacheItem); ok {
+			return item.Payload, item.TTL, nil
+		}
+	}
+	return payload, ttl, err
+}
+
 func (h HTTPRecord) extractTTL(hdr http.Header) uint32 {
 	var ttl uint32 = 0
 
@@ -199,7 +232,7 @@ func (h HTTPRecord) extractTTL(hdr http.Header) uint32 {
 }
 
 func (h HTTPRecord) fetchAndWrite(w dns.ResponseWriter, r *dns.Msg, rtype string, name string, uri string) (int, error) {
-	payload, ttl, err := h.fetch(name, uri)
+	payload, ttl, err := h.maybeFetchCached(name, uri)
 	if err != nil {
 		if bie, ok := err.(BackendIndicatedError); ok {
 			return bie.DNSResponseCode, err
